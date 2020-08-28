@@ -80,15 +80,18 @@ static int stat_map(struct dm_target *ti, struct bio *bio)
 			/* readahead of null bytes only wastes buffer cache */
 			return DM_MAPIO_KILL;
 		}
-		printk(KERN_CRIT "\n stat_map : bio is a read request.... \n");
-		// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+		// count read stats
 		st->read_sum += bio->bi_io_vec->bv_len;
+		++st->read_calls;
+		printk(KERN_CRIT "\n read stats = %ld avg  %ld calls\n", st->read_sum/st->read_calls, st->read_calls);
 		zero_fill_bio(bio);
 
 		break;
 	case REQ_OP_WRITE:
-		/* writes get silently dropped */
-		printk(KERN_CRIT "\n stat_map : bio is a write request.... \n");
+		// count write stats
+		st->write_sum += bio->bi_io_vec->bv_len;
+		++st->write_calls;
+		printk(KERN_CRIT "\n read stats = %ld avg  %ld calls\n", st->write_sum/st->write_calls, st->write_calls);
 		break;
 	default:
 		return DM_MAPIO_KILL;
