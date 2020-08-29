@@ -9,7 +9,6 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/bio.h>
-
 #define DM_MSG_PREFIX "zero"
 
 struct stat_target
@@ -20,14 +19,13 @@ struct stat_target
 	__UINT64_TYPE__ write_sum;
 	__UINT64_TYPE__ write_calls;
 };
-
 /*
  * Constructor
  */
 static int stat_target_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 {
 	struct stat_target *st;
-
+	
 	if (argc != 1) {
 		ti->error = "One argument required";
 		return -EINVAL;
@@ -91,12 +89,13 @@ static int stat_map(struct dm_target *ti, struct bio *bio)
 		// count write stats
 		st->write_sum += bio->bi_io_vec->bv_len;
 		++st->write_calls;
-		printk(KERN_CRIT "\n read stats = %ld avg  %ld calls\n", st->write_sum/st->write_calls, st->write_calls);
+		printk(KERN_CRIT "\n write stats = %ld avg  %ld calls\n", st->write_sum/st->write_calls, st->write_calls);
 		break;
 	default:
 		return DM_MAPIO_KILL;
 	}
 
+	submit_bio(bio);
 	bio_endio(bio);
 
 	/* accepted bio, don't make new request */

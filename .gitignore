@@ -1,0 +1,4 @@
+*.*
+!dmp.c
+!Makefile
+!.gitignore
