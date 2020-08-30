@@ -9,23 +9,56 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/bio.h>
+#include <linux/moduleparam.h> 
+#include <linux/string.h> 
+#include <linux/sysfs.h>
+//#include <linux/mtd/map.h>
 #define DM_MSG_PREFIX "zero"
 
-struct stat_target
+//static char stat[500] = "read:\n\treqs: 500\n\tavg size: 4096\nwrite:\n\treqs: 100\n\tavg size: 4096\ntotal:\n\treqs: 600\n\tavg size: 4096";
+//module_param_string(stat, stat, sizeof(stat), S_IRUGO);
+
+static struct kobject* my_kobj;
+
+
+ssize_t my_dev_show(struct device* dev, struct device_attribute* attr, char* buff)
+{
+	return 0;
+}
+
+ssize_t my_dev_store(struct device* dev, struct device_attribute* attr, const char* buff, size_t count)
+{
+	return 0;
+}
+
+static struct device_attribute my_dev_attribute =
+{
+	.show = my_dev_show,
+	.store = my_dev_store
+};
+
+static struct stat_target
 {
 	struct dm_dev* dev;
+	struct device_attribute* dev_attr;
 	__UINT64_TYPE__ read_sum;
 	__UINT64_TYPE__ read_calls;
 	__UINT64_TYPE__ write_sum;
 	__UINT64_TYPE__ write_calls;
 };
+
+
+
 /*
  * Constructor
  */
 static int stat_target_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 {
 	struct stat_target *st;
-	
+	int create_file_err = 0;
+	char* attr_name;
+	char* search;
+
 	if (argc != 1) {
 		ti->error = "One argument required";
 		return -EINVAL;
@@ -47,8 +80,25 @@ static int stat_target_ctr(struct dm_target *ti, unsigned int argc, char **argv)
         	return -EINVAL;
         }
 	
-	ti->private = st;
+	st->dev_attr = &my_dev_attribute;
+	attr_name = argv[0];
+	search = strchr(argv[0], '/');
+	while (search != NULL)
+	{
+		attr_name = search + 1;
+		search = strchr(search+1, '/');
+	}
+	st->dev_attr->attr.name = attr_name;
+	st->dev_attr->attr.mode = 0660;
+	printk(KERN_CRIT "\ncreating %s file at %s/%s\n", st->dev_attr->attr.name, my_kobj->parent->name, my_kobj->name);           
+	create_file_err = sysfs_create_file(my_kobj, &(st->dev_attr->attr));
+	if (create_file_err < 0)
+	{
+		printk(KERN_CRIT "\nerror creating sysfs file\n");           
+		return -EINVAL;
+	}
 
+	ti->private = st;
 	printk(KERN_CRIT "\n>>out function stat_target_ctr \n");
 	return 0;
 }
@@ -79,7 +129,7 @@ static int stat_map(struct dm_target *ti, struct bio *bio)
 			return DM_MAPIO_KILL;
 		}
 		// count read stats
-		st->read_sum += bio->bi_io_vec->bv_len;
+		st->read_sum += bio->bi_iter.bi_size;
 		++st->read_calls;
 		printk(KERN_CRIT "\n read stats = %ld avg  %ld calls\n", st->read_sum/st->read_calls, st->read_calls);
 		zero_fill_bio(bio);
@@ -87,7 +137,7 @@ static int stat_map(struct dm_target *ti, struct bio *bio)
 		break;
 	case REQ_OP_WRITE:
 		// count write stats
-		st->write_sum += bio->bi_io_vec->bv_len;
+		st->write_sum += bio->bi_iter.bi_size;
 		++st->write_calls;
 		printk(KERN_CRIT "\n write stats = %ld avg  %ld calls\n", st->write_sum/st->write_calls, st->write_calls);
 		break;
@@ -98,7 +148,6 @@ static int stat_map(struct dm_target *ti, struct bio *bio)
 	submit_bio(bio);
 	bio_endio(bio);
 
-	/* accepted bio, don't make new request */
 	return DM_MAPIO_SUBMITTED;
 }
 
@@ -114,15 +163,25 @@ static struct target_type stat_target = {
 static int __init dm_zero_init(void)
 {
 	int r = dm_register_target(&stat_target);
-
 	if (r < 0)
+	{
 		DMERR("register failed %d", r);
+		return r;
+	}
 
-	return r;
+	my_kobj = kobject_create_and_add("stat", stat_target.module->holders_dir);
+	if(!my_kobj)
+	{
+		DMERR("failed to create an object");
+    	return -ENOMEM;
+	}
+
+	return 0;
 }
 
 static void __exit dm_zero_exit(void)
 {
+	kobject_put(my_kobj);
 	dm_unregister_target(&stat_target);
 }
 
