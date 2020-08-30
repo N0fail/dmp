@@ -136,14 +136,14 @@ static int stat_map(struct dm_target *ti, struct bio *bio)
 			return DM_MAPIO_KILL;
 		}
 		// count read stats
-		//read_sum += bio->bi_iter.bi_size;
-		read_sum += bio->bi_io_vec->bv_len;
+		read_sum += bio->bi_iter.bi_size;
+		//read_sum += bio->bi_io_vec->bv_len;
 		++read_calls;
 		break;
 	case REQ_OP_WRITE:
 		// count write stats
-		//write_sum += bio->bi_iter.bi_size;
-		write_sum += bio->bi_io_vec->bi_size;
+		write_sum += bio->bi_iter.bi_size;
+		//read_sum += bio->bi_io_vec->bv_len;
 		++write_calls;
 		break;
 	default:
