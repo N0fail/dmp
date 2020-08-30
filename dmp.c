@@ -15,15 +15,16 @@
 //#include <linux/mtd/map.h>
 #define DM_MSG_PREFIX "zero"
 
-//static char stat[500] = "read:\n\treqs: 500\n\tavg size: 4096\nwrite:\n\treqs: 100\n\tavg size: 4096\ntotal:\n\treqs: 600\n\tavg size: 4096";
+static char stat[500] = "read:\n\treqs: 500\n\tavg size: 4096\nwrite:\n\treqs: 100\n\tavg size: 4096\ntotal:\n\treqs: 600\n\tavg size: 4096";
 //module_param_string(stat, stat, sizeof(stat), S_IRUGO);
 
 static struct kobject* my_kobj;
+int devices_count = 0;
 
 
 ssize_t my_dev_show(struct device* dev, struct device_attribute* attr, char* buff)
 {
-	return 0;
+	return sprintf(buff, "%s\n", dev->init_name);
 }
 
 ssize_t my_dev_store(struct device* dev, struct device_attribute* attr, const char* buff, size_t count)
@@ -48,7 +49,7 @@ static struct stat_target
 };
 
 
-
+static struct target_type stat_target;
 /*
  * Constructor
  */
@@ -80,6 +81,16 @@ static int stat_target_ctr(struct dm_target *ti, unsigned int argc, char **argv)
         	return -EINVAL;
         }
 	
+	if (devices_count++ == 0)
+	{
+		my_kobj = kobject_create_and_add("stat", stat_target.module->holders_dir);
+		if(!my_kobj)
+		{
+			DMERR("failed to create an object");
+			return -ENOMEM;
+		}
+	}
+
 	st->dev_attr = &my_dev_attribute;
 	attr_name = argv[0];
 	search = strchr(argv[0], '/');
@@ -106,11 +117,13 @@ static int stat_target_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 // Destructor
 static void stat_target_dtr(struct dm_target *ti)
 {
-  struct stat_target *mdt = (struct stat_target *) ti->private;
-  printk(KERN_CRIT "\n<<in function basic_target_dtr \n");        
-  dm_put_device(ti, mdt->dev);
-  kfree(mdt);
-  printk(KERN_CRIT "\n>>out function basic_target_dtr \n");               
+	struct stat_target *mdt = (struct stat_target *) ti->private;
+	printk(KERN_CRIT "\n<<in function basic_target_dtr \n");        
+	dm_put_device(ti, mdt->dev);
+	kfree(mdt);
+	if (--devices_count == 0)
+		kobject_del(my_kobj);
+	printk(KERN_CRIT "\n>>out function basic_target_dtr \n");               
 }
 
 
@@ -169,19 +182,11 @@ static int __init dm_zero_init(void)
 		return r;
 	}
 
-	my_kobj = kobject_create_and_add("stat", stat_target.module->holders_dir);
-	if(!my_kobj)
-	{
-		DMERR("failed to create an object");
-    	return -ENOMEM;
-	}
-
 	return 0;
 }
 
 static void __exit dm_zero_exit(void)
 {
-	kobject_put(my_kobj);
 	dm_unregister_target(&stat_target);
 }
 
