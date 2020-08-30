@@ -15,8 +15,12 @@
 //#include <linux/mtd/map.h>
 #define DM_MSG_PREFIX "zero"
 
-static char stat[500] = "read:\n\treqs: 500\n\tavg size: 4096\nwrite:\n\treqs: 100\n\tavg size: 4096\ntotal:\n\treqs: 600\n\tavg size: 4096";
+//static char stat[500] = "read:\n\treqs: %ld\n\tavg size: %ld\nwrite:\n\treqs: %ld\n\tavg size: %ld\ntotal:\n\treqs: %ld\n\tavg size: %ld";
 //module_param_string(stat, stat, sizeof(stat), S_IRUGO);
+__UINT64_TYPE__ read_sum = 0;
+__UINT64_TYPE__ read_calls = 0;
+__UINT64_TYPE__ write_sum = 0;
+__UINT64_TYPE__ write_calls = 0;
 
 static struct kobject* my_kobj;
 int devices_count = 0;
@@ -24,7 +28,21 @@ int devices_count = 0;
 
 ssize_t my_dev_show(struct device* dev, struct device_attribute* attr, char* buff)
 {
-	return sprintf(buff, "%s\n", dev->init_name);
+	__UINT64_TYPE__ avg_read = 0;
+	__UINT64_TYPE__ avg_write = 0;
+	__UINT64_TYPE__ avg_all = 0;
+
+	if (read_calls > 0)
+	{
+		avg_read = read_sum/read_calls;
+		avg_all = (read_sum+write_sum)/(read_calls+write_calls);
+	}
+
+	if (write_calls > 0)
+		avg_write = write_sum / write_calls;
+
+	return sprintf(buff, "read:\n\treqs: %ld\n\tavg size: %ld\nwrite:\n\treqs: %ld\n\tavg size: %ld\ntotal:\n\treqs: %ld\n\tavg size: %ld\n", 
+					read_calls, avg_read, write_calls, avg_write, read_calls+write_calls, avg_all);
 }
 
 ssize_t my_dev_store(struct device* dev, struct device_attribute* attr, const char* buff, size_t count)
@@ -41,13 +59,12 @@ static struct device_attribute my_dev_attribute =
 static struct stat_target
 {
 	struct dm_dev* dev;
-	struct device_attribute* dev_attr;
-	__UINT64_TYPE__ read_sum;
-	__UINT64_TYPE__ read_calls;
-	__UINT64_TYPE__ write_sum;
-	__UINT64_TYPE__ write_calls;
+	// struct device_attribute* dev_attr;
+	// __UINT64_TYPE__ read_sum;
+	// __UINT64_TYPE__ read_calls;
+	// __UINT64_TYPE__ write_sum;
+	// __UINT64_TYPE__ write_calls;
 };
-
 
 static struct target_type stat_target;
 /*
@@ -57,8 +74,8 @@ static int stat_target_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 {
 	struct stat_target *st;
 	int create_file_err = 0;
-	char* attr_name;
-	char* search;
+	// char* attr_name;
+	// char* search;
 
 	if (argc != 1) {
 		ti->error = "One argument required";
@@ -68,11 +85,11 @@ static int stat_target_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 	st = kmalloc(sizeof(struct stat_target), GFP_KERNEL);
 
 	if(st==NULL)
-        {
-			printk(KERN_CRIT "\n Mdt is null\n");
-            ti->error = "dm-stat_target: Cannot allocate linear context";
-            return -ENOMEM;
-        }       
+	{
+		printk(KERN_CRIT "\n Mdt is null\n");
+		ti->error = "dm-stat_target: Cannot allocate linear context";
+		return -ENOMEM;
+	}       
 
 	if (dm_get_device(ti, argv[0], dm_table_get_mode(ti->table), &st->dev)) {
             ti->error = "dm-stat_target: Device lookup failed";
@@ -89,27 +106,39 @@ static int stat_target_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 			DMERR("failed to create an object");
 			return -ENOMEM;
 		}
+
+		my_dev_attribute.attr.name = "volumes";
+		my_dev_attribute.attr.mode = 0660;
+
+		create_file_err = sysfs_create_file(my_kobj, &(my_dev_attribute.attr));
+		if (create_file_err < 0)
+		{
+			kobject_put(my_kobj);
+			printk(KERN_CRIT "\nerror creating sysfs file\n");           
+			return -EINVAL;
+		}
 	}
 
-	st->dev_attr = &my_dev_attribute;
-	attr_name = argv[0];
-	search = strchr(argv[0], '/');
-	while (search != NULL)
-	{
-		attr_name = search + 1;
-		search = strchr(search+1, '/');
-	}
-	st->dev_attr->attr.name = attr_name;
-	st->dev_attr->attr.mode = 0660;
-	printk(KERN_CRIT "\ncreating %s file at %s/%s\n", st->dev_attr->attr.name, my_kobj->parent->name, my_kobj->name);           
-	create_file_err = sysfs_create_file(my_kobj, &(st->dev_attr->attr));
-	if (create_file_err < 0)
-	{
-		printk(KERN_CRIT "\nerror creating sysfs file\n");           
-		return -EINVAL;
-	}
+	//st->dev_attr = &my_dev_attribute;
+	// attr_name = argv[0];
+	// search = strchr(argv[0], '/');
+	// while (search != NULL)
+	// {
+	// 	attr_name = search + 1;
+	// 	search = strchr(search+1, '/');
+	// }
+	// st->dev_attr->attr.name = attr_name;
+	// st->dev_attr->attr.mode = 0660;
+	//printk(KERN_CRIT "\ncreating %s file at %s/%s\n", st->dev_attr->attr.name, my_kobj->parent->name, my_kobj->name);           
+	// create_file_err = sysfs_create_file(my_kobj, &(st->dev_attr->attr));
+	// if (create_file_err < 0)
+	// {
+	// 	printk(KERN_CRIT "\nerror creating sysfs file\n");           
+	// 	return -EINVAL;
+	// }
 
 	ti->private = st;
+	//++devices_count;
 	printk(KERN_CRIT "\n>>out function stat_target_ctr \n");
 	return 0;
 }
@@ -122,7 +151,7 @@ static void stat_target_dtr(struct dm_target *ti)
 	dm_put_device(ti, mdt->dev);
 	kfree(mdt);
 	if (--devices_count == 0)
-		kobject_del(my_kobj);
+		kobject_put(my_kobj);
 	printk(KERN_CRIT "\n>>out function basic_target_dtr \n");               
 }
 
@@ -142,17 +171,17 @@ static int stat_map(struct dm_target *ti, struct bio *bio)
 			return DM_MAPIO_KILL;
 		}
 		// count read stats
-		st->read_sum += bio->bi_iter.bi_size;
-		++st->read_calls;
-		printk(KERN_CRIT "\n read stats = %ld avg  %ld calls\n", st->read_sum/st->read_calls, st->read_calls);
-		zero_fill_bio(bio);
+		read_sum += bio->bi_iter.bi_size;
+		++read_calls;
+		//printk(KERN_CRIT "\n read stats = %ld avg  %ld calls\n", st->read_sum/st->read_calls, st->read_calls);
+		//zero_fill_bio(bio);
 
 		break;
 	case REQ_OP_WRITE:
 		// count write stats
-		st->write_sum += bio->bi_iter.bi_size;
-		++st->write_calls;
-		printk(KERN_CRIT "\n write stats = %ld avg  %ld calls\n", st->write_sum/st->write_calls, st->write_calls);
+		write_sum += bio->bi_iter.bi_size;
+		++write_calls;
+		//printk(KERN_CRIT "\n write stats = %ld avg  %ld calls\n", st->write_sum/st->write_calls, st->write_calls);
 		break;
 	default:
 		return DM_MAPIO_KILL;
@@ -175,12 +204,31 @@ static struct target_type stat_target = {
 
 static int __init dm_zero_init(void)
 {
+	// int create_file_err = 0;
 	int r = dm_register_target(&stat_target);
 	if (r < 0)
 	{
 		DMERR("register failed %d", r);
 		return r;
 	}
+
+	// my_kobj = kobject_create_and_add("stat", stat_target.module->holders_dir);
+	// if(!my_kobj)
+	// {
+	// 	DMERR("failed to create an object");
+	// 	return -ENOMEM;
+	// }
+
+	// my_dev_attribute.attr.name = "volumes";
+	// my_dev_attribute.attr.mode = 0660;
+
+	// create_file_err = sysfs_create_file(my_kobj, &(my_dev_attribute.attr));
+	// if (create_file_err < 0)
+	// {
+	// 	kobject_put(my_kobj);
+	// 	printk(KERN_CRIT "\nerror creating sysfs file\n");           
+	// 	return -EINVAL;
+	// }
 
 	return 0;
 }
